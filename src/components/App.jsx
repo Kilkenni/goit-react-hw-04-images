@@ -1,4 +1,4 @@
-import { Component } from "react";
+import { useState, useEffect } from "react";
 
 import Searchbar from "./Searchbar";
 import ImageGallery from "./ImageGallery";
@@ -9,30 +9,67 @@ import PixabayFetch from "js/Pixabay";
 import { ToastContainer, toast } from "react-toastify";
 import 'react-toastify/dist/ReactToastify.css';
 
-export class App extends Component {
-  state = {
-    searchString: "",
-    page: 1,
-    imagesFound: 0,
-    imageDataArray: [],
-    error: null,
-    status: "idle", // idle|loading|error|success
+export function App() {
+  const [searchString, setSearchString] = useState("");
+  const [page, setPage] = useState(1);
+  const [modalData, setModalData] = useState({
     showModalImage: false,
     modalImage: undefined,
     modalImageAlt: undefined,
-  }
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [imagesFound, setImagesFound] = useState(0);
+  const [imageDataArray, setImageDataArray] = useState([]);
 
-  pixabayFetcher = new PixabayFetch();
-
-  async componentDidUpdate(prevProps, prevState) {
-    if ((prevState.searchString !== this.state.searchString) || (prevState.page !== this.state.page)) {
-      this.pixabayFetcher.setSearch(this.state.searchString);
-      //await this.setState({ page: 1 }); //reset page to 1
-      await this.fetchImages();
+  useEffect(() => {
+    //skip first render (and any render with empty search term)
+    if (searchString === "") {
+      return;
     }
-    //else if (prevState.page !== this.state.page) {
-      //await this.fetchImages();
-      // console.log(`New search string: ${this.props.searchString}`)
+
+    const pixabayFetcher = new PixabayFetch();
+
+    async function fetchImages() {
+      await setIsLoading(true);
+
+      try {
+        const response = await pixabayFetcher.fetchImages(page);
+
+        //pick from response.hits only the fields we actually use to avoid cluttering state
+        const filteredImageDataArray = response.hits.map(({id, largeImageURL, webformatURL, tags}) => {
+          return {id, largeImageURL, webformatURL, tags};
+        });
+
+        if (page === 1) {
+          setImageDataArray(filteredImageDataArray);
+          setImagesFound(response.total);
+        }
+        else {
+          setImageDataArray((prevArray) => {
+            return [...prevArray, ...filteredImageDataArray]
+          });
+          setImagesFound(response.total);
+        }
+        setIsLoading(false);
+        //this.setState({ error: null, status: "success" });
+
+        if (response.total === 0) {
+          toast.warning("No images found matching this request.");
+        }
+      } catch (error) {
+        setIsLoading(false);
+        //this.setState({ error, status: "error" });
+        toast.error("Unable to retrieve images from the server. Try again?");
+      }
+    }
+
+    pixabayFetcher.setSearch(searchString);
+    fetchImages(); //await?
+
+    return function abortFetch() {
+      pixabayFetcher.abortFetch();
+    }
+  }, [searchString, page]);
 
       /*
       //soft scrolling uses Ref assigned to UL element in render()
@@ -40,122 +77,78 @@ export class App extends Component {
       //alternative: this.galleryElem.firstElementChild.getBoundingClientRect().height;
       window.scrollBy({ top: cardHeight * 2 * (this.state.page - 1), behavior: "smooth", }); //scrolling down by 2 rows
       */
-    //}
-  }
 
-  componentWillUnmount() {
-      this.pixabayFetcher.abortFetch();
-  }
-
-  toggleModalImage = (imageID = undefined) => {
+  const toggleModalImage = (imageID = undefined) => {
     if (imageID !== undefined) {
-      const modalImageData = this.state.imageDataArray.find((imageData) => {
+      const modalImageData = imageDataArray.find((imageData) => {
           return imageData.id === imageID;
       });
 
-      this.setState({
+      setModalData({
         showModalImage: true,
         modalImage: modalImageData.largeImageURL,
         modalImageAlt: modalImageData.tags,
       });
     }
     else {
-      this.setState({
+      setModalData({
         showModalImage: false,
         modalImage: undefined,
         modalImageAlt: undefined,
-      })
+      });
     }
   } 
 
-  nextPage = () => {
+  const nextPage = () => {
       //switch to next page only if there is one
-      if (this.state.imagesFound > this.state.imageDataArray.length) {
-          this.setState((prevState) => {
-              return { page: prevState.page + 1 };
-          });
-      }  
+    if (imagesFound > imageDataArray.length) {
+      setPage((currentPage) => {
+        return currentPage + 1; 
+      });
+    }  
   }
 
-  async fetchImages() {
-      this.setState({ status: "loading" });
-
-      // this.pixabayFetcher.setSearch(this.props.searchString);
-
-      // console.log(PixabayFetcher.composeQuery());
-      try {
-        const response = await this.pixabayFetcher.fetchImages(this.state.page);
-
-        //pick from response.hits only the fields we actually use to avoid cluttering state
-        const filteredImageDataArray = response.hits.map(({id, largeImageURL, webformatURL, tags}) => {
-          return {id, largeImageURL, webformatURL, tags};
-        });
-
-        if (this.state.page === 1) {
-            this.setState({ imageDataArray: filteredImageDataArray, imagesFound: response.total});
-        }
-        else {
-            this.setState((prevState) => {
-                return { imageDataArray: [...prevState.imageDataArray, ...filteredImageDataArray], imagesFound: response.total };
-            });
-        }
-        this.setState({ error: null, status: "success" });
-        //console.log(this.state.imageDataArray);
-        if (this.state.status==="success" && this.state.imagesFound === 0) {
-          toast.warning("No images found matching this request.");
-        }
-      } catch (error) {
-        this.setState({ error, status: "error" });
-        toast.error("Unable to retrieve images from the server. Try again?");
-      }
+  const onSearch = (searchString) => {
+    setSearchString(searchString);
+    setPage(1);
   }
 
-  onSearch = (searchString) => {
-    this.setState({ searchString: searchString, page: 1 });
-  }
+  return (
+    <div
+      style={{
+        height: '100vh',
+        fontSize: 20,
+        color: '#010101',
+      }}
+    >
+      {/* React homework template */}
+      <Searchbar onSubmit={(searchString) => { onSearch(searchString) }}></Searchbar>
 
-  render() {
-    return (
-      <div
-        style={{
-          height: '100vh',
-          // display: 'flex',
-          // justifyContent: 'center',
-          // alignItems: 'center',
-          fontSize: 20,
-          // textTransform: 'uppercase',
-          color: '#010101',
-        }}
-      >
-        {/* React homework template */}
-        <Searchbar onSubmit={(searchString) => { this.onSearch(searchString) }}></Searchbar>
-
-        <ToastContainer
-          position="top-right"
-          autoClose={3000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-        />
-        
-        {(this.state.imageDataArray.length > 0) && <ImageGallery
-          imageDataArray={this.state.imageDataArray}
-          onModal={this.toggleModalImage} />}
-        
-        {(this.state.status === "loading") && <Loader />}
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
       
-        {(this.state.status === "success") && <Button onLoadMore={this.nextPage}
-            disabled={!(this.state.imagesFound > this.state.imageDataArray.length)} />}
+      {(imageDataArray.length > 0) && <ImageGallery
+        imageDataArray={imageDataArray}
+        onModal={toggleModalImage} />}
+      
+      {isLoading && <Loader />}
+    
+      {(!isLoading && (imagesFound > 0) ) && <Button onLoadMore={nextPage}
+          disabled={!(imagesFound > imageDataArray.length)} />}
 
-        {this.state.showModalImage && <Modal onClose={this.toggleModalImage}>
-            <img src={this.state.modalImage} alt={ this.state.modalImageAlt } loading="lazy"/>
-        </Modal>}
+      {modalData.showModalImage && <Modal onClose={toggleModalImage}>
+          <img src={modalData.modalImage} alt={ modalData.modalImageAlt } loading="lazy"/>
+      </Modal>}
 
-      </div>
-    );
-  } 
+    </div>
+  );
 };
